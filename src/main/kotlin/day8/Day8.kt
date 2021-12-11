@@ -8,7 +8,7 @@ import java.io.File
 * acedgfb cdfbe gcdfa fbcad dab cefabd cdfgeb eafb cagedb ab | cdfeb fcadb cdfeb cdbaf
 */
 fun parseOnlyDigitsOutput(entries: List<String>): List<List<String>> =
-  entries.map { entry -> entry.split("|")[1].trimStart().split(" ") }
+  entries.map { entry -> entry.split(" | ")[1].split(" ") }
 
 fun countOneFourSevenAndEights(listOfDisplayDigitRows: List<List<String>>): Int {
   val listOfSizes = listOf(2, 4, 3, 7) // The amount of signals that 1, 4, 7 and 8 require respectively
@@ -99,10 +99,10 @@ fun computeEquivalenceMap(digitsSignals: String): Map<Char, Char> {
 }
 
 fun decipherSignal(entry: String): Int {
-  val (signals, display) = entry.split("|")
-  val equivalenceMap = computeEquivalenceMap(signals.trim())
+  val (signals, display) = entry.split(" | ")
+  val equivalenceMap = computeEquivalenceMap(signals)
   val outputDigits = display
-    .trim().split(" ")
+    .split(" ")
     .map { digit ->
       val translation = digit.map(equivalenceMap::get).sortedBy { it }.joinToString("")
       digitMap[translation]

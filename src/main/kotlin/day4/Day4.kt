@@ -42,13 +42,13 @@ fun findWinnerBoardScore(drawNumbers: List<Int>, boards: List<BingoBoard>): Int 
 }
 
 fun findLoserBoardScore(drawNumbers: List<Int>, boards: List<BingoBoard>): Int {
-  var mutBoards = boards
+  val mutBoards = boards.toMutableList()
   drawNumbers.forEach { number ->
     mutBoards.forEach { board ->
       board.visit(number)
       if (mutBoards.size == 1 && board.isCompleted) return mutBoards.first().sumUnvisited() * number
     }
-    mutBoards = mutBoards.filterNot { it.isCompleted }
+    mutBoards.removeAll { it.isCompleted }
   }
   return 0 // should never reach this point
 }
@@ -60,8 +60,9 @@ fun parseBingoData(data: List<String>): Pair<List<Int>, List<BingoBoard>> {
   val drawNumbers = data.first().split(",").map(String::toInt)
   val boards = data
     .drop(1) // remove draw numbers
-    .chunked(6)
-    .map { parseBoard(it.drop(1)/* removing separator*/) }
+    .filterNot(String::isBlank)
+    .chunked(5)
+    .map(::parseBoard)
   return Pair(drawNumbers, boards)
 }
 

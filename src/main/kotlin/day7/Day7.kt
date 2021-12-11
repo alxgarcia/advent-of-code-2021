@@ -3,9 +3,9 @@ package day7
 import java.io.File
 import kotlin.math.abs
 
-fun parseInput(input: String) = input.split(",").groupingBy { it.toInt() }.eachCount()
+fun parseInput(input: String) = input.split(",").groupingBy(String::toInt).eachCount()
 
-fun minFuelSpentToAlignedPosition(data: Map<Int, Int>, costFn: (Int, Int) -> Int): Int {
+private fun minFuelSpentToAlignedPosition(data: Map<Int, Int>, costFn: (Int, Int) -> Int): Int {
   val min = data.keys.minOf { it }
   val max = data.keys.maxOf { it }
 

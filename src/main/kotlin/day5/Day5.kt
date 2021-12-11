@@ -10,7 +10,7 @@ private val regex = """(\d+),(\d+) -> (\d+),(\d+)""".toRegex()
 fun parseLine(line: String): List<Int> =
   regex.matchEntire(line)!!
     .groupValues.drop(1) // dropping first item because it's the whole line
-    .map { it.toInt() }
+    .map(String::toInt)
 
 private fun expandRange(start: Int, end: Int) = if (start <= end) start.rangeTo(end) else start.downTo(end)
 
