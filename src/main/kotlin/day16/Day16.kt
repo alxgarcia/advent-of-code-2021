@@ -8,99 +8,50 @@ sealed interface Packet {
   val version: Int
   val value: Long
 }
-sealed interface Operation : Packet {
-  val packets: List<Packet>
-}
 
 data class Literal(override val version: Int, override val value: Long) : Packet
-data class Sum(override val version: Int, override val packets: List<Packet>) : Operation {
+data class Op(override val version: Int, private val type: Int, val packets: List<Packet>) : Packet {
   override val value: Long
-    get() = packets.sumOf { it.value }
-}
-data class Product(override val version: Int, override val packets: List<Packet>) : Operation {
-  override val value: Long
-    get() = packets.fold(1L) { acc, packet -> acc * packet.value }
-}
-data class Min(override val version: Int, override val packets: List<Packet>) : Operation {
-  override val value: Long
-    get() = packets.minOf { it.value }
-}
-data class Max(override val version: Int, override val packets: List<Packet>) : Operation {
-  override val value: Long
-    get() = packets.maxOf { it.value }
-}
-data class GreaterThan(override val version: Int, override val packets: List<Packet>) : Operation {
-  override val value: Long
-    get() = if (packets[0].value > packets[1].value) 1 else 0
-}
-data class LessThan(override val version: Int, override val packets: List<Packet>) : Operation {
-  override val value: Long
-    get() = if (packets[0].value < packets[1].value) 1 else 0
-}
-data class Equal(override val version: Int, override val packets: List<Packet>) : Operation {
-  override val value: Long
-    get() = if (packets[0].value == packets[1].value) 1 else 0
+    get() = when (type) {
+      0 -> packets.sumOf { it.value }
+      1 -> packets.fold(1L) { acc, packet -> acc * packet.value }
+      2 -> packets.minOf { it.value }
+      3 -> packets.maxOf { it.value }
+      5 -> if (packets[0].value > packets[1].value) 1 else 0
+      6 -> if (packets[0].value < packets[1].value) 1 else 0
+      7 -> if (packets[0].value == packets[1].value) 1 else 0
+      else -> TODO("Operation $type is not supported")
+    }
 }
 
-private val hexBinMap = mapOf(
-  '0' to "0000",
-  '1' to "0001",
-  '2' to "0010",
-  '3' to "0011",
-  '4' to "0100",
-  '5' to "0101",
-  '6' to "0110",
-  '7' to "0111",
-  '8' to "1000",
-  '9' to "1001",
-  'A' to "1010",
-  'B' to "1011",
-  'C' to "1100",
-  'D' to "1101",
-  'E' to "1110",
-  'F' to "1111",
-)
+private val hexBinMap2 = (0..0xF).associate { n -> n.toString(16).first().uppercaseChar() to n.toString(2).padStart(4, '0') }
+fun hexToBits(input: String): Iterator<Char> = input.flatMap { hexBinMap2[it]!!.asIterable() }.iterator()
 
-fun hexaToBits(input: String): Iterator<Char> = input.flatMap { hexBinMap[it]!!.asIterable() }.iterator()
-
+// Syntax sugar methods that will carelessly throw exception if there aren't enough bits
 private fun Iterator<Char>.take(bits: Int): String = (1..bits).map { next() }.joinToString("")
 private fun Iterator<Char>.takeInt(bits: Int): Int = take(bits).toInt(2)
 
-fun decodePackets(input: Iterator<Char>): List<Packet> {
-  val packets = mutableListOf<Packet>()
+fun decodePackets(input: Iterator<Char>): List<Packet> = sequence {
   while (input.hasNext()) {
     val next = decodeNextPacket(input)
-    if (next.isPresent) packets.add(next.get())
+    if (next.isPresent) yield(next.get())
   }
-  return packets
-}
+}.toList()
 
 fun decodeNPackets(input: Iterator<Char>, number: Int) = (1..number).map { decodeNextPacket(input).get() }
 
-fun decodeNextPacket(input: Iterator<Char>): Optional<Packet> =
-  decodePacketHeader(input)
-    .map { (version, typeId) ->
-      when (typeId) {
-        0 -> Sum(version, decodeOperatorPayload(input))
-        1 -> Product(version, decodeOperatorPayload(input))
-        2 -> Min(version, decodeOperatorPayload(input))
-        3 -> Max(version, decodeOperatorPayload(input))
-        4 -> Literal(version, decodeLiteralPayload(input))
-        5 -> GreaterThan(version, decodeOperatorPayload(input))
-        6 -> LessThan(version, decodeOperatorPayload(input))
-        7 -> Equal(version, decodeOperatorPayload(input))
-        else -> TODO()
-      }
+fun decodeNextPacket(input: Iterator<Char>): Optional<Packet> = runCatching {
+  val version = input.takeInt(3)
+  val typeId = input.takeInt(3)
+  return Optional.ofNullable(
+    when (typeId) {
+      4 -> Literal(version, decodeLiteralPayload(input))
+      else -> Op(version, typeId, decodeOperatorPayload(input))
     }
+  )
+}.getOrElse { Optional.empty() }
 
-fun decodePacketHeader(input: Iterator<Char>): Optional<Pair<Int, Int>> =
-  runCatching {
-    val version = input.takeInt(3)
-    val typeId = input.takeInt(3)
-    Optional.of(version to typeId)
-  }.getOrElse { Optional.empty() }
-
-fun decodeLiteralPayload(input: Iterator<Char>): Long {
+private fun decodeLiteralPayload(input: Iterator<Char>): Long {
   tailrec fun rec(input: Iterator<Char>, number: Long): Long {
     val controlBit = input.next()
     val n = number.shl(4) + input.takeInt(4)
@@ -109,20 +60,17 @@ fun decodeLiteralPayload(input: Iterator<Char>): Long {
   return rec(input, 0)
 }
 
-fun decodeOperatorPayload(input: Iterator<Char>): List<Packet> =
-  runCatching {
-    when (input.next()) { // O -> 15, 1 -> 11
-      '0' -> {
-        val limit = input.takeInt(15)
-        decodePackets(boundedIteratorWrap(input, limit))
-      }
-      '1' -> {
-        val number = input.takeInt(11)
-        decodeNPackets(input, number)
-      }
-      else -> TODO()
+private fun decodeOperatorPayload(input: Iterator<Char>): List<Packet> = runCatching {
+  when (input.next()) {
+    '0' -> { // takes 15 bits to parse the size of the payload in bits
+      decodePackets(boundedIteratorWrap(input, input.takeInt(15)))
     }
-  }.getOrElse { emptyList() }
+    '1' -> { // takes 11 bits to parse the number of packets in its payload
+      decodeNPackets(input, input.takeInt(11))
+    }
+    else -> TODO("Should never happen")
+  }
+}.getOrElse { emptyList() }
 
 private fun boundedIteratorWrap(iterator: Iterator<Char>, limit: Int) = object : Iterator<Char> {
   private var counter = 0
@@ -138,21 +86,18 @@ private fun boundedIteratorWrap(iterator: Iterator<Char>, limit: Int) = object :
 fun sumAllVersionsOfTheTransmission(input: Iterator<Char>): Long {
   fun sumVersions(p: Packet): Long = when (p) {
     is Literal -> p.version.toLong()
-    is Operation -> p.packets.fold(p.version.toLong()) { acc, packet -> acc + sumVersions(packet) }
+    is Op -> p.packets.fold(p.version.toLong()) { acc, packet -> acc + sumVersions(packet) }
   }
 
   return decodePackets(input).fold(0L) { acc, packet -> acc + sumVersions(packet) }
 }
 
-fun evaluateTransmission(input: Iterator<Char>): Long {
-  val decodePackets = decodePackets(input)
-  return decodePackets.first().value
-}
+fun evaluateTransmission(input: Iterator<Char>): Long = decodeNextPacket(input).get().value
 
 fun main() {
   File("./input/day16.txt").useLines { lines ->
     val transmission = lines.first()
-    println(sumAllVersionsOfTheTransmission(hexaToBits(transmission)))
-    println(evaluateTransmission(hexaToBits(transmission)))
+    println(sumAllVersionsOfTheTransmission(hexToBits(transmission)))
+    println(evaluateTransmission(hexToBits(transmission)))
   }
 }
